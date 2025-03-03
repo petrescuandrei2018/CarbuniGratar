@@ -2,5 +2,6 @@
 {
     public interface ICosService
     {
+        Task ActualizeazaCacheRedis(int clientId);
     }
 }

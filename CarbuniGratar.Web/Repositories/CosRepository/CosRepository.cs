@@ -25,9 +25,57 @@ namespace CarbuniGratar.Web.Repositories.CosRepository
             throw new NotImplementedException();
         }
 
-        public Task AdaugaInCosAsync(int clientId, int produsId, int cantitate)
+        public async Task AdaugaInCosAsync(int clientId, int produsId, int cantitate)
         {
-            throw new NotImplementedException();
+            // Căutăm în baza de date dacă clientul are deja o comandă "În curs de plasare".
+            // Aceasta este o comandă temporară unde clientul adaugă produse, dar încă nu a finalizat achiziția.
+            // Dacă nu găsim nicio astfel de comandă, trebuie să creăm una nouă.
+            var comandaInCursPlasare = await _nepalezBazaDate.Comenzi
+                .FirstOrDefaultAsync(comanda => comanda.ClientId == clientId && comanda.Status == "In curs de plasare");
+
+            if (comandaInCursPlasare == null)
+            {
+                comandaInCursPlasare = new Comanda
+                {
+                    ClientId = clientId,
+                    DataPlasare = DateTime.Now,
+                    Status = "In curs de plasare",
+                    Total = 0
+                };
+
+                await _nepalezBazaDate.Comenzi.AddAsync(comandaInCursPlasare);
+                await _nepalezBazaDate.SaveChangesAsync();
+            }
+
+            // Verificăm dacă produsul există deja în această comandă "În curs de plasare".
+            // Dacă îl găsim, înseamnă că trebuie doar să îi creștem cantitatea.
+            // Dacă returnează `null`, înseamnă că acest produs nu a fost adăugat în această comandă și trebuie creat.
+            var produsInComanda = await _nepalezBazaDate.ComenziProduse
+                .FirstOrDefaultAsync(cp => cp.ComandaId == comandaInCursPlasare.Id && cp.ProdusId == produsId);
+
+            if (produsInComanda != null)
+            {
+                produsInComanda.Cantitate += cantitate;
+            }
+            else
+            {
+                var produs = await _nepalezBazaDate.Produse.FindAsync(produsId);
+                if (produs != null)
+                {
+                    produsInComanda = new ComandaProdus
+                    {
+                        ComandaId = comandaInCursPlasare.Id,
+                        ProdusId = produsId,
+                        Cantitate = cantitate,
+                        PretUnitate = produs.Pret
+                    };
+
+                    await _nepalezBazaDate.ComenziProduse.AddAsync(produsInComanda);
+                }
+            }
+
+            await _nepalezBazaDate.SaveChangesAsync();
+            await ActualizeazaCacheAsync(clientId);
         }
 
         public Task GolesteCosDupaComandaAsync(int clientId)

@@ -19,7 +19,7 @@ namespace CarbuniGratar.Web.Models
         [Column(TypeName = "decimal(10,2)")]
         public decimal Total { get; set; }
 
-        public string Status { get; set; } = "In procesare";
+        public string Status { get; set; } = "In curs de plasare";
 
         // Relație: O comandă poate conține mai multe produse
         public List<ComandaProdus> ProduseComandate { get; set; } = new List<ComandaProdus>();
