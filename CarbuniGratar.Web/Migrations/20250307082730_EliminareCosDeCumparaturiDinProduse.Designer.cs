@@ -4,6 +4,7 @@ using CarbuniGratar.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CarbuniGratar.Web.Migrations
 {
     [DbContext(typeof(NepalezBazaDate))]
-    partial class NepalezBazaDateModelSnapshot : ModelSnapshot
+    [Migration("20250307082730_EliminareCosDeCumparaturiDinProduse")]
+    partial class EliminareCosDeCumparaturiDinProduse
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -116,37 +119,6 @@ namespace CarbuniGratar.Web.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Produse");
-                });
-
-            modelBuilder.Entity("CarbuniGratar.Web.Models.UtilizatorInactiv", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("DataUltimeiActivitati")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Motiv")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Telefon")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("UtilizatoriInactivi");
                 });
 
             modelBuilder.Entity("CarbuniGratar.Web.Models.CosDeCumparaturi", b =>

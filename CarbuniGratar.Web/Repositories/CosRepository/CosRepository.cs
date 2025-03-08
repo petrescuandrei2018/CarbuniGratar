@@ -1,128 +1,214 @@
 ﻿using CarbuniGratar.Web.Data;
 using CarbuniGratar.Web.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
+using StackExchange.Redis;
 using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Threading.Tasks;
+using IDatabase = StackExchange.Redis.IDatabase;
 
 namespace CarbuniGratar.Web.Repositories.CosRepository
 {
     public class CosRepository : ICosRepository
     {
         private readonly NepalezBazaDate _nepalezBazaDate;
-        private readonly IDistributedCache _cache; //Redis cache setat o singură dată, incapsulat și nu poate fi modificat ulterior
-                                                   //persistenta si acces rapid la informații fără a interoga direct baza de date de fiecare data
+        private readonly IDatabase _cache;
         private const string CachePrefix = "Cos_";
 
-        public CosRepository(NepalezBazaDate nepalezBazaDate, IDistributedCache cache)
+        public CosRepository(NepalezBazaDate nepalezBazaDate, IConnectionMultiplexer redis)
         {
             _nepalezBazaDate = nepalezBazaDate;
-            _cache = cache;
-
-        }
-        public Task ActualizeazaCosAsync(int clientId, int produsId, int cantitate)
-        {
-            throw new NotImplementedException();
+            _cache = redis.GetDatabase();
         }
 
-        public async Task AdaugaInCosAsync(int clientId, int produsId, int cantitate)
-        {
-            // Căutăm în baza de date dacă clientul are deja o comandă "În curs de plasare".
-            // Aceasta este o comandă temporară unde clientul adaugă produse, dar încă nu a finalizat achiziția.
-            // Dacă nu găsim nicio astfel de comandă, trebuie să creăm una nouă.
-            var comandaInCursPlasare = await _nepalezBazaDate.Comenzi
-                .FirstOrDefaultAsync(comanda => comanda.ClientId == clientId && comanda.Status == "In curs de plasare");
 
-            if (comandaInCursPlasare == null)
+        // ✅ Verifică dacă există produse în coș
+        public async Task<bool> ExistaProduseInCosAsync(int clientId)
+        {
+            var cosDeCumparaturi = await ObtineCosDinRedisAsync(clientId);
+            if(cosDeCumparaturi == null)
             {
-                comandaInCursPlasare = new Comanda
+                cosDeCumparaturi = await ObtineCosDinSqlAsync(clientId);
+                if(cosDeCumparaturi == null)
                 {
-                    ClientId = clientId,
-                    DataPlasare = DateTime.Now,
-                    Status = "In curs de plasare",
-                    Total = 0
-                };
+                    return false; // ❌ Nu există coș
+                }
 
-                await _nepalezBazaDate.Comenzi.AddAsync(comandaInCursPlasare);
-                await _nepalezBazaDate.SaveChangesAsync();
-            }
-
-            // Verificăm dacă produsul există deja în această comandă "În curs de plasare".
-            // Dacă îl găsim, înseamnă că trebuie doar să îi creștem cantitatea.
-            // Dacă returnează `null`, înseamnă că acest produs nu a fost adăugat în această comandă și trebuie creat.
-            var produsInComanda = await _nepalezBazaDate.ComenziProduse
-                .FirstOrDefaultAsync(cp => cp.ComandaId == comandaInCursPlasare.Id && cp.ProdusId == produsId);
-
-            if (produsInComanda != null)
-            {
-                produsInComanda.Cantitate += cantitate;
+                else
+                {
+                    if (cosDeCumparaturi.Total > 0) // ✅ Dacă am găsit coș cu total pozitiv în SQL, îl salvăm în Redis
+                    {     
+                        if(cosDeCumparaturi.Status == StatusCosDeCumparaturi.CosFaraProduse)
+                        {
+                            cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosCuProduse;
+                        }
+                        var cacheKey = $"{CachePrefix}{clientId}";
+                        await _cache.StringSetAsync(cacheKey, JsonConvert.SerializeObject(cosDeCumparaturi));
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
             }
             else
             {
-                var produs = await _nepalezBazaDate.Produse.FindAsync(produsId);
-                if (produs != null)
+                if (cosDeCumparaturi.Total > 0)
                 {
-                    produsInComanda = new ComandaProdus
+                    if (cosDeCumparaturi.Status == StatusCosDeCumparaturi.CosFaraProduse)
                     {
-                        ComandaId = comandaInCursPlasare.Id,
-                        ProdusId = produsId,
-                        Cantitate = cantitate,
-                        PretUnitate = produs.Pret
-                    };
-
-                    await _nepalezBazaDate.ComenziProduse.AddAsync(produsInComanda);
+                        cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosCuProduse;
+                    }
+                    return true;
+                }
+                else
+                {
+                    return false;
                 }
             }
-
-            await _nepalezBazaDate.SaveChangesAsync();
-            await ActualizeazaCacheAsync(clientId);
         }
 
-        public Task GolesteCosDupaComandaAsync(int clientId)
+
+
+        public async Task<CosDeCumparaturi> ObtineCosDinRedisAsync(int clientId)
+        {
+            var cacheKey = $"{CachePrefix}{clientId}";
+            var cacheRedis = await _cache.StringGetAsync(cacheKey);
+            if (cacheRedis.IsNullOrEmpty)
+            {
+                return null;
+            }
+
+            return JsonConvert.DeserializeObject<CosDeCumparaturi>(cacheRedis);
+        }
+
+
+
+        public async Task<CosDeCumparaturi> ObtineCosDinSqlAsync(int clientId)
+        {
+            return await _nepalezBazaDate.CosuriDeCumparaturi
+                .FirstOrDefaultAsync(c => c.ClientId == clientId);
+        }
+
+
+
+        public async Task<CosDeCumparaturi> AdaugaProdusInCos(int clientId, int produsId, int cantitate)
+        {
+            var cacheKey = $"{CachePrefix}{clientId}";
+            bool existaProduseInCos = await ExistaProduseInCosAsync(clientId);
+            if (existaProduseInCos == false)
+            {
+                var cosDeCumparaturi = await CreeazaCosNouAsync(clientId);
+                cosDeCumparaturi = await AdaugaProdusCareNuEInCosAsync(clientId, cosDeCumparaturi, produsId, cantitate);
+                await _cache.StringSetAsync(cacheKey, cosDeCumparaturi.ProduseJson, TimeSpan.FromDays(30));
+                cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosCuProduse;
+                return cosDeCumparaturi;
+            }
+            else
+            {
+                var cos = await _cache.StringGetAsync(cacheKey);
+                var cosDeCumparaturi = await _nepalezBazaDate.CosuriDeCumparaturi.FirstOrDefaultAsync(cos => cos.ClientId == clientId);
+                bool existaProdusInCosCumaparturi = await ExistaProdusInCosCumparaturi(produsId, cosDeCumparaturi);
+                if (existaProdusInCosCumaparturi)
+                {
+                    cosDeCumparaturi = await ModificaCantitateProdusAsync(clientId, produsId, cantitate, cosDeCumparaturi);
+                    if(cosDeCumparaturi.Total == 0)
+                    {
+                        cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosFaraProduse;
+                    }
+                    return cosDeCumparaturi;
+                }
+                else
+                {
+                    cosDeCumparaturi = await AdaugaProdusCareNuEInCosAsync(clientId, cosDeCumparaturi, produsId, cantitate);
+                    return cosDeCumparaturi;
+                }
+            }
+        }
+
+        public async Task<bool> ExistaProdusInCosCumparaturi (int produsId, CosDeCumparaturi cosDeCumparaturi)
+        {
+            var listaProduse = await ConvertesteProduseJsonLaListaProduse(cosDeCumparaturi.ProduseJson);
+            if (listaProduse.FirstOrDefault(p => p.Id == produsId) != null)
+            {
+                return true;
+            }
+            else {  return false; } 
+        }
+
+        public async Task<CosDeCumparaturi> CreeazaCosNouAsync(int clientId)
+        {
+            CosDeCumparaturi cosNouDeCumparaturi = new CosDeCumparaturi();
+            cosNouDeCumparaturi.ClientId = clientId;
+            return cosNouDeCumparaturi;
+        }
+
+
+
+        public async Task<CosDeCumparaturi> AdaugaProdusCareNuEInCosAsync(int clientId, CosDeCumparaturi cosDeCumparaturi, int produsId, int cantitate)
+        {
+            Produs produs = await ObtineProdusDinBd(produsId);
+            produs.CantitatePentruCosCumparaturi = cantitate;
+            List<Produs> listaProduseDinCosulDeCumparturi = await ConvertesteProduseJsonLaListaProduse(cosDeCumparaturi.ProduseJson);
+            listaProduseDinCosulDeCumparturi.Add(produs);
+            cosDeCumparaturi.ProduseJson = JsonConvert.SerializeObject(listaProduseDinCosulDeCumparturi);
+            cosDeCumparaturi.Total = cosDeCumparaturi.Total + cantitate * produs.Pret;
+            
+            return cosDeCumparaturi;
+        }
+
+        public async Task<Produs> ObtineProdusDinBd (int produsId)
+        {
+            var produs = await _nepalezBazaDate.Produse.FirstOrDefaultAsync(p => p.Id == produsId);
+            return produs;
+        }
+
+        public async Task<List<Produs>> ConvertesteProduseJsonLaListaProduse (string produseJson)
+        {
+            List<Produs> listaProduse = JsonConvert.DeserializeObject<List<Produs>>(produseJson);
+            return listaProduse;
+
+        }
+
+
+        public async Task<CosDeCumparaturi> ModificaCantitateProdusAsync(int clientId, int produsId, int cantitate, CosDeCumparaturi cosDeCumparaturi)
+        {
+            List<Produs> listaProduse = await ConvertesteProduseJsonLaListaProduse(cosDeCumparaturi.ProduseJson);
+            Produs produs = listaProduse.FirstOrDefault(lp => lp.Id == produsId);
+            produs.CantitatePentruCosCumparaturi += cantitate;
+            cosDeCumparaturi.Total = cosDeCumparaturi.Total + cantitate * produs.Pret;
+            if(produs.CantitatePentruCosCumparaturi <= 0)
+            {
+                listaProduse.Remove(produs);
+            }
+            cosDeCumparaturi.ProduseJson = JsonConvert.SerializeObject(listaProduse);
+            return cosDeCumparaturi;
+        }
+
+
+
+        public Task SincronizeazaCosRedisCuSqlAsync(int clientId)
         {
             throw new NotImplementedException();
         }
 
-        public async Task<List<ProdusCos>> ObtineCosBdAsync(int clientId)
+        public Task StergeCosDinRedisAsync(int clientId)
         {
-            var cacheKey = $"{CachePrefix}{clientId}"; // cheie unică pentru cache-ul coșului de cumpărături al unui anumit client
-
-            // 1️⃣ Încercăm să luăm datele din Redis
-            var cosJson = await _cache.GetStringAsync(cacheKey);
-            if (!string.IsNullOrEmpty(cosJson))
-            {
-                return JsonConvert.DeserializeObject<List<ProdusCos>>(cosJson);
-            }
-
-            // 2️⃣ Dacă nu există în Redis, luăm datele din SQL Server cu un JOIN
-            var cosProduse = await (from comandaProdus in _nepalezBazaDate.ComenziProduse
-                                    join produs in _nepalezBazaDate.Produse
-                                    on comandaProdus.ProdusId equals produs.Id
-                                    join comanda in _nepalezBazaDate.Comenzi
-                                    on comandaProdus.ComandaId equals comanda.Id
-                                    where comanda.ClientId == clientId && comanda.Status == "In cos"
-                                    select new ProdusCos
-                                    {
-                                        ProdusId = produs.Id,
-                                        NumeProdus = produs.Nume,
-                                        Cantitate = comandaProdus.Cantitate,
-                                        Pret = produs.Pret,
-                                        ImageUrl = produs.ImagineUrl
-                                    }).ToListAsync();
-
-
-            if (cosProduse.Any())
-            {
-                await _cache.SetStringAsync(cacheKey, JsonConvert.SerializeObject(cosProduse), new DistributedCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24)
-                });
-            }
-
-            return cosProduse;
+            throw new NotImplementedException();
         }
 
-        public Task StergeCompletDinCosAsync(int clientId, int produsId)
+        public Task StergeCosDinSqlAsync(int clientId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task StergeProdusDinCosAsync(int clientId, int produsId)
         {
             throw new NotImplementedException();
         }

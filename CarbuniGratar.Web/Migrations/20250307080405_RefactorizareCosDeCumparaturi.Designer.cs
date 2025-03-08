@@ -4,6 +4,7 @@ using CarbuniGratar.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CarbuniGratar.Web.Migrations
 {
     [DbContext(typeof(NepalezBazaDate))]
-    partial class NepalezBazaDateModelSnapshot : ModelSnapshot
+    [Migration("20250307080405_RefactorizareCosDeCumparaturi")]
+    partial class RefactorizareCosDeCumparaturi
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -67,10 +70,6 @@ namespace CarbuniGratar.Web.Migrations
                     b.Property<DateTime>("DataCreare")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("ProduseJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -94,6 +93,9 @@ namespace CarbuniGratar.Web.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("CosDeCumparaturiId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Descriere")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -115,38 +117,9 @@ namespace CarbuniGratar.Web.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CosDeCumparaturiId");
+
                     b.ToTable("Produse");
-                });
-
-            modelBuilder.Entity("CarbuniGratar.Web.Models.UtilizatorInactiv", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("DataUltimeiActivitati")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Motiv")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Telefon")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("UtilizatoriInactivi");
                 });
 
             modelBuilder.Entity("CarbuniGratar.Web.Models.CosDeCumparaturi", b =>
@@ -158,10 +131,22 @@ namespace CarbuniGratar.Web.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CarbuniGratar.Web.Models.Produs", b =>
+                {
+                    b.HasOne("CarbuniGratar.Web.Models.CosDeCumparaturi", null)
+                        .WithMany("Produse")
+                        .HasForeignKey("CosDeCumparaturiId");
+                });
+
             modelBuilder.Entity("CarbuniGratar.Web.Models.Client", b =>
                 {
                     b.Navigation("CosDeCumparaturi")
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CarbuniGratar.Web.Models.CosDeCumparaturi", b =>
+                {
+                    b.Navigation("Produse");
                 });
 #pragma warning restore 612, 618
         }

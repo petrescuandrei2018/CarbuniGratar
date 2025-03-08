@@ -8,26 +8,18 @@ namespace CarbuniGratar.Web.Data
         public NepalezBazaDate(DbContextOptions<NepalezBazaDate> instructiuni) : base(instructiuni) { }
 
         public DbSet<Produs> Produse { get; set; }
-        public DbSet<Comanda> Comenzi { get; set; }
+        public DbSet<CosDeCumparaturi> CosuriDeCumparaturi { get; set; } // 🔥 Înlocuim `Comanda`
+        public DbSet<UtilizatorInactiv> UtilizatoriInactivi { get; set; }
+
         public DbSet<Client> Clienti { get; set; }
-        public DbSet<ComandaProdus> ComenziProduse { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<CosDeCumparaturi>()
+                .Property(c => c.Status)
+                .HasConversion<string>(); // ✅ Salvăm enum-ul ca text în SQL
+
             base.OnModelCreating(modelBuilder);
-
-            modelBuilder.Entity<ComandaProdus>()
-                .HasKey(cp => new { cp.ComandaId, cp.ProdusId });
-
-            modelBuilder.Entity<ComandaProdus>()
-                .HasOne(cp => cp.Comanda)
-                .WithMany(cp => cp.ProduseComandate)
-                .HasForeignKey(cp => cp.ComandaId);
-
-            modelBuilder.Entity<ComandaProdus>()
-                .HasOne(cp => cp.Produs)
-                .WithMany(cp => cp.ComenziProduse)
-                .HasForeignKey(cp => cp.ProdusId);
         }
     }
 }

@@ -24,7 +24,7 @@ namespace CarbuniGratar.Web.Models
 
         public bool InStoc { get; set; }
 
-        // Relație: Un produs poate fi inclus în mai multe comenzi si by default lista este valida si goala, nu null cu erori
-        public List<ComandaProdus> ComenziProduse { get; set; } = new List<ComandaProdus>();
+        [NotMapped] // ✅ Nu salvăm în baza de date, doar în JSON-ul coșului
+        public int CantitatePentruCosCumparaturi {  get; set; }
     }
 }

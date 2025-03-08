@@ -24,7 +24,7 @@ namespace CarbuniGratar.Web.Models
         [StringLength(255)]
         public string Adresa { get; set; }
 
-        // Relație: Un client poate avea mai multe comenzi si primeste o lista goala default nu o lista null care ar da erori
-        public List<Comanda> Comenzi { get; set; } = new List<Comanda>();
+        // 🔥 Relație: Un client are UN SINGUR coș de cumpărături activ
+        public CosDeCumparaturi CosDeCumparaturi { get; set; }
     }
 }
