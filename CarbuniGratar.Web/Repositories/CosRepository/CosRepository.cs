@@ -193,24 +193,127 @@ namespace CarbuniGratar.Web.Repositories.CosRepository
 
 
 
-        public Task SincronizeazaCosRedisCuSqlAsync(int clientId)
+        public async Task<string> SincronizeazaCosRedisCuSqlAsync(string codRedis)
         {
-            throw new NotImplementedException();
+            // 🔹 Obținem coșurile din Redis și SQL
+            string cosRedisJson = await _cache.StringGetAsync(codRedis);
+            var cosDeCumparaturi = !string.IsNullOrEmpty(cosRedisJson)
+                ? JsonConvert.DeserializeObject<CosDeCumparaturi>(cosRedisJson)
+                : null;
+
+            var cosSql = await _nepalezBazaDate.CosuriDeCumparaturi
+                .FirstOrDefaultAsync(c => c.ClientId == cosDeCumparaturi.ClientId);
+
+            // 🔹 Dacă există doar în Redis, salvăm în SQL
+            if (cosDeCumparaturi != null && cosSql == null)
+            {
+                var nouCos = new CosDeCumparaturi
+                {
+                    ClientId = cosDeCumparaturi.ClientId,
+                    DataCreare = cosDeCumparaturi.DataCreare,
+                    Total = cosDeCumparaturi.Total,
+                    Status = cosDeCumparaturi.Status,
+                    ProduseJson = cosDeCumparaturi.ProduseJson
+                };
+
+                _nepalezBazaDate.CosuriDeCumparaturi.Add(nouCos);
+                await _nepalezBazaDate.SaveChangesAsync();
+                return $"✅ Coșul din Redis a fost salvat în SQL.";
+            }
+
+            // 🔹 Dacă există doar în SQL, salvăm în Redis
+            if (cosDeCumparaturi == null && cosSql != null)
+            {
+                await _cache.StringSetAsync(codRedis, JsonConvert.SerializeObject(cosSql));
+                return $"✅ Coșul din SQL a fost salvat în Redis.";
+            }
+
+            // 🔹 Dacă există în ambele, combinăm produsele
+            if (cosDeCumparaturi != null && cosSql != null)
+            {
+                var produseRedis = JsonConvert.DeserializeObject<List<Produs>>(cosDeCumparaturi.ProduseJson);
+                var produseSql = JsonConvert.DeserializeObject<List<Produs>>(cosSql.ProduseJson);
+
+                foreach (var produs in produseRedis)
+                {
+                    var produsExistent = produseSql.FirstOrDefault(p => p.Id == produs.Id);
+                    if (produsExistent != null)
+                    {
+                        produsExistent.CantitatePentruCosCumparaturi += produs.CantitatePentruCosCumparaturi;
+                    }
+                    else
+                    {
+                        produseSql.Add(produs);
+                    }
+                }
+
+                // 🔹 Salvăm coșul actualizat în ambele locuri
+                string cosFinalJson = JsonConvert.SerializeObject(new CosDeCumparaturi
+                {
+                    ClientId = cosSql.ClientId,
+                    DataCreare = cosSql.DataCreare,
+                    Total = produseSql.Sum(p => p.Pret * p.CantitatePentruCosCumparaturi),
+                    Status = cosDeCumparaturi.Status,
+                    ProduseJson = JsonConvert.SerializeObject(produseSql),
+                });
+
+                await _cache.StringSetAsync(codRedis, cosFinalJson);
+                cosSql.ProduseJson = JsonConvert.SerializeObject(produseSql);
+                cosSql.Total = produseSql.Sum(p => p.Pret * p.CantitatePentruCosCumparaturi);
+                await _nepalezBazaDate.SaveChangesAsync();
+
+                return $"✅ Coșurile din Redis și SQL au fost combinate și sincronizate.";
+            }
+
+            return $"⚠ Nu există date în Redis sau SQL pentru acest coș.";
         }
 
-        public Task StergeCosDinRedisAsync(int clientId)
+
+
+        public async Task<string> StergeCosDinRedisAsync(int clientId)
         {
-            throw new NotImplementedException();
+            var cacheKey = $"{CachePrefix}{clientId}";
+            bool exista = await _cache.KeyExistsAsync(cacheKey);
+            if(exista)
+            {
+                await _cache.KeyDeleteAsync(cacheKey);
+                return $"✅ Coșul clientului {clientId} a fost șters din Redis.";
+            }
+            else
+            {
+                return $"❌ Coșul pentru clientul {clientId} nu există în Redis."; 
+            }
         }
 
-        public Task StergeCosDinSqlAsync(int clientId)
+
+
+        public async Task<string> StergeCosDinSqlAsync(CosDeCumparaturi cosDeCumparaturi)
         {
-            throw new NotImplementedException();
+            _nepalezBazaDate.CosuriDeCumparaturi.Remove(cosDeCumparaturi);
+            await _nepalezBazaDate.SaveChangesAsync();
+            var mesaj = $"CosDeCumparaturi {cosDeCumparaturi} sters";
+            return mesaj;
         }
 
-        public Task StergeProdusDinCosAsync(int clientId, int produsId)
+
+
+        public async Task<CosDeCumparaturi> StergeProdusDinCosAsync(CosDeCumparaturi cosDeCumparaturi, int produsId)
         {
-            throw new NotImplementedException();
+            var listaProduse = JsonConvert.DeserializeObject<List<Produs>>(cosDeCumparaturi.ProduseJson);
+            var produsDeSters = listaProduse.FirstOrDefault(p => p.Id == produsId);
+
+            if (produsDeSters == null)
+            {
+                throw new InvalidOperationException($"❌ Produsul cu ID {produsId} nu există în coș.");
+            }
+
+            listaProduse.Remove(produsDeSters);
+
+            // 🔹 Actualizăm totalul coșului
+            cosDeCumparaturi.Total = listaProduse.Sum(p => p.Pret * p.CantitatePentruCosCumparaturi);
+            cosDeCumparaturi.ProduseJson = JsonConvert.SerializeObject(listaProduse);
+
+            return cosDeCumparaturi;
         }
     }
 }

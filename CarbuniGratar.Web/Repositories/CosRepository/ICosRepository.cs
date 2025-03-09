@@ -16,12 +16,12 @@ namespace CarbuniGratar.Web.Repositories.CosRepository
         Task<CosDeCumparaturi> CreeazaCosNouAsync(int clientId);
         Task<CosDeCumparaturi> AdaugaProdusCareNuEInCosAsync(int clientId, CosDeCumparaturi cosDeCumparaturi, int produsId, int cantitate);
         Task<CosDeCumparaturi> ModificaCantitateProdusAsync(int clientId, int produsId, int cantitate, CosDeCumparaturi cosDeCumparaturi);
-        Task StergeProdusDinCosAsync(int clientId, int produsId);
+        Task<CosDeCumparaturi> StergeProdusDinCosAsync(CosDeCumparaturi cosDeCumparaturi, int produsId)
         Task<bool> ExistaProdusInCosCumparaturi(int produsId, CosDeCumparaturi cosDeCumparaturi);
 
         // 🔴 Ștergere și Sincronizare
-        Task StergeCosDinRedisAsync(int clientId);
-        Task StergeCosDinSqlAsync(int clientId);
-        Task SincronizeazaCosRedisCuSqlAsync(int clientId);
+        Task<string> StergeCosDinRedisAsync(int clientId);
+        Task<string> StergeCosDinSqlAsync(CosDeCumparaturi cosDeCumparaturi);
+        Task<string> SincronizeazaCosRedisCuSqlAsync(string redis);
     }
 }
