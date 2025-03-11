@@ -18,13 +18,13 @@ namespace CarbuniGratar.Web.Models
 
         [Required]
         [Column(TypeName = "decimal(10,2)")]
-        public decimal Total { get; set; } = 0; // Totalul coșului
+        public decimal Total { get; set; } = 0m; // Totalul coșului
 
         [Required]
         public StatusCosDeCumparaturi Status { get; set; } = StatusCosDeCumparaturi.CosFaraProduse;
 
 
-        // Câmp care conține produsele în format JSON
-        public string ProduseJson { get; set; }
+        // Eliminăm ProduseJson și adăugăm o listă de produse asociate
+        public List<ListaCuCantitatileProduselorDinCosCumparaturi> ListaCantitatiProduseDinCosCumparaturi { get; set; } = new List<ListaCuCantitatileProduselorDinCosCumparaturi>();
     }
 }

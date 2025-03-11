@@ -23,8 +23,5 @@ namespace CarbuniGratar.Web.Models
         public string ImagineUrl { get; set; }
 
         public bool InStoc { get; set; }
-
-        [NotMapped] // ✅ Nu salvăm în baza de date, doar în JSON-ul coșului
-        public int CantitatePentruCosCumparaturi {  get; set; }
     }
 }
