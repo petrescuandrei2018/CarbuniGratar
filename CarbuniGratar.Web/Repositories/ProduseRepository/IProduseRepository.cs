@@ -4,6 +4,6 @@ namespace CarbuniGratar.Web.Repositories.ProduseRepository
 {
     public interface IProduseRepository
     {
-        Task<List<Produs>> ObtineToateProdusele();
+        Task<List<Produs>> ObtineToateProduseleAsync();
     }
 }

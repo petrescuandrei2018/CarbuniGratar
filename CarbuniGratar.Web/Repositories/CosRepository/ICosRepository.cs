@@ -6,33 +6,21 @@ namespace CarbuniGratar.Web.Repositories.CosRepository
 {
     public interface ICosRepository
     {
-        Task<bool> ExistaProduseInCosAsync(int clientId);
-
-        Task<CosDeCumparaturi> ObtineCosDinRedisAsync(int clientId);
-
         Task<CosDeCumparaturi> ObtineCosDinSqlAsync(int clientId);
 
-        Task<CosDeCumparaturi> AdaugaProdusInCos(int clientId, int produsId, int cantitate);
-
-        Task<bool> ExistaProdusInCosCumparaturi(int produsId, CosDeCumparaturi cosDeCumparaturi);
 
         Task<CosDeCumparaturi> CreeazaCosNouAsync(int clientId);
 
-        Task<decimal?> CalculeazaTotalAsync(CosDeCumparaturi cosCumparaturi);
+        Task<List<Produs>> ObtineListaProduseDupaIdAsync(List<int> listaProduse);
 
-        Task<CosDeCumparaturi> AdaugaProdusCareNuEInCosAsync(int clientId, CosDeCumparaturi cosDeCumparaturi, int produsId, int cantitate);
+        Task<Produs> ObtineProdusDinBdAsync(int produsId);
 
-        Task<Produs> ObtineProdusDinBd(int produsId);
+        Task ActualizeazaCosAsync(CosDeCumparaturi cosDeCumparaturi);
 
-        Task<CosDeCumparaturi> ModificaCantitateProdusAsync(int clientId, int produsId, int cantitate, CosDeCumparaturi cosDeCumparaturi);
-
-
-        Task<string> StergeCosDinRedisAsync(int clientId);
-
+        Task<CosDeCumparaturi> AdaugaCosNouSauActualizeazaCosSqlAsync(CosDeCumparaturi cosDeCumparaturi);
 
         Task<string> StergeCosDinSqlAsync(CosDeCumparaturi cosDeCumparaturi);
 
 
-        Task<CosDeCumparaturi> StergeProdusDinCosAsync(CosDeCumparaturi cosDeCumparaturi, int produsId);
     }
 }

@@ -12,7 +12,7 @@ namespace CarbuniGratar.Web.Repositories.ProduseRepository
             _nepalezBazaDate = nepalezBazaDate;
         }
 
-        public async Task<List<Produs>> ObtineToateProdusele()
+        public async Task<List<Produs>> ObtineToateProduseleAsync()
         {
             return await _nepalezBazaDate.Produse.ToListAsync();
         }
