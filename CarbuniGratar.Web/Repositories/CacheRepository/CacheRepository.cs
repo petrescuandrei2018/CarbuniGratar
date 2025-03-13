@@ -10,7 +10,7 @@ namespace CarbuniGratar.Web.Repositories.CacheRepository
         private const string CachePrefix = "Cos_";
 
 
-        public CacheRepository(IConnectionMultiplexer cacheRedis, IConnectionMultiplexer redis)
+        public CacheRepository(IConnectionMultiplexer redis)
         {
             _cache = redis.GetDatabase();
         }
@@ -42,6 +42,18 @@ namespace CarbuniGratar.Web.Repositories.CacheRepository
             }
         }
 
+
+        public async Task<CosDeCumparaturi?> ObtineCosDinRedisAsync(string clientAnonimId)
+        {
+            var cosJson = await _cache.StringGetAsync($"Cos_{clientAnonimId}");
+            return cosJson.IsNullOrEmpty ? null : JsonConvert.DeserializeObject<CosDeCumparaturi>(cosJson);
+        }
+
+
+        public async Task SalveazaCosInRedisAsync(string cacheKey, string cosJson)
+        {
+            await _cache.StringSetAsync(cacheKey, cosJson);
+        }
 
         public async Task<string> StergeCosDinRedisAsync(int clientId)
         {

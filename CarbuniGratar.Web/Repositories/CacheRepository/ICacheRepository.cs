@@ -7,6 +7,9 @@ namespace CarbuniGratar.Web.Repositories.CacheRepository
         Task SalveazaCosInRedisAsync(int clientId, CosDeCumparaturi cos);
 
         Task<CosDeCumparaturi> ObtineCosDinRedisAsync(int clientId);
+        Task<CosDeCumparaturi> ObtineCosDinRedisAsync(string clientAnonimId);
+
+        Task SalveazaCosInRedisAsync(string cacheKey, string cosJson);
 
         Task<string> StergeCosDinRedisAsync(int clientId);
     }

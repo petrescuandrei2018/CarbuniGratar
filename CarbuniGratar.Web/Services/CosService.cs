@@ -7,22 +7,20 @@ using CarbuniGratar.Web.Repositories.CosRepository;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using StackExchange.Redis;
+using System.Security.Claims;
 
 namespace CarbuniGratar.Web.Services
 {
     public class CosService : ICosService
     {
-        private readonly IDatabase _cacheRedis;
         private readonly ICosRepository _cosRepository;
-        private readonly IDatabase _cache;
         private const string CachePrefix = "Cos_";
         private readonly ICacheRepository _cacheRepository;
 
-        public CosService(IConnectionMultiplexer cacheRedis, IConnectionMultiplexer redis, ICacheRepository cacheRepository)
+        public CosService(ICosRepository cosRepository, ICacheRepository cacheRepository)
         {
-            _cacheRedis = cacheRedis.GetDatabase();
-            _cache = redis.GetDatabase();
             _cacheRepository = cacheRepository;
+            _cosRepository = cosRepository;
         }
 
 
@@ -87,7 +85,7 @@ namespace CarbuniGratar.Web.Services
 
             // 🔹 8️⃣ Salvăm coșul în Redis dacă a fost luat din SQL
             var cacheKey = $"{CachePrefix}{clientId}";
-            await _cache.StringSetAsync(cacheKey, JsonConvert.SerializeObject(cosDeCumparaturi));
+            await _cacheRepository.SalveazaCosInRedisAsync(cacheKey, JsonConvert.SerializeObject(cosDeCumparaturi));
 
             return true;
         }
@@ -106,6 +104,73 @@ namespace CarbuniGratar.Web.Services
         }
 
 
+
+        public async Task<CosDeCumparaturi> ObtineCosAsync(HttpContext nepalezHttpInformatii)
+        {
+            var idClientString = ObtineIdClientHttp(nepalezHttpInformatii);
+
+            CosDeCumparaturi cos;
+
+            // 🔹 Verificăm dacă ID-ul clientului este numeric (user logat) sau este un GUID (client anonim)
+            if (int.TryParse(idClientString, out int idClient))
+            {
+                cos = await _cacheRepository.ObtineCosDinRedisAsync(idClient);
+            }
+            else
+            {
+                cos = await _cacheRepository.ObtineCosDinRedisAsync(idClientString);
+            }
+
+            // 🔹 Dacă coșul este gol și avem un client logat, încercăm să-l luăm din SQL
+            if ((cos == null || cos.ListaCantitatiProduseDinCosCumparaturi == null || !cos.ListaCantitatiProduseDinCosCumparaturi.Any()) && idClient > 0)
+            {
+                cos = await _cosRepository.ObtineCosDinSqlAsync(idClient);
+            }
+
+            // 🔹 Dacă coșul este încă gol, returnăm un obiect gol în loc de `null`
+            if (cos == null || cos.ListaCantitatiProduseDinCosCumparaturi == null || !cos.ListaCantitatiProduseDinCosCumparaturi.Any())
+            {
+                return new CosDeCumparaturi { ListaCantitatiProduseDinCosCumparaturi = new List<ListaCuCantitatileProduselorDinCosCumparaturi>() };
+            }
+
+            return cos;
+        }
+        public async Task<CosDeCumparaturi> ObtineCosAsync(int clientId)
+        {
+            CosDeCumparaturi cos = await _cacheRepository.ObtineCosDinRedisAsync(clientId);
+
+            // 🔹 Dacă coșul este gol, căutăm în SQL
+            if (cos == null || cos.ListaCantitatiProduseDinCosCumparaturi == null || !cos.ListaCantitatiProduseDinCosCumparaturi.Any())
+            {
+                cos = await _cosRepository.ObtineCosDinSqlAsync(clientId);
+            }
+
+            // 🔹 Dacă coșul este încă gol, returnăm un obiect gol în loc de `null`
+            if (cos == null || cos.ListaCantitatiProduseDinCosCumparaturi == null)
+            {
+                return new CosDeCumparaturi { ListaCantitatiProduseDinCosCumparaturi = new List<ListaCuCantitatileProduselorDinCosCumparaturi>() };
+            }
+
+            return cos;
+        }
+
+        private string ObtineIdClientHttp(HttpContext nepalezHttpInformatii)
+        {
+            if(nepalezHttpInformatii.User.Identity.IsAuthenticated)
+            {
+                return nepalezHttpInformatii.User.FindFirst(ClaimTypes.NameIdentifier)?.Value; //pune null 
+            }
+
+            if (nepalezHttpInformatii.Request.Cookies.ContainsKey("clientAnonimId"))
+            {
+                return nepalezHttpInformatii.Request.Cookies["clientAnonimId"];
+            }
+
+            var clientAnonimId = Guid.NewGuid().ToString();
+            nepalezHttpInformatii.Response.Cookies.Append("clientAnonimId", clientAnonimId, new CookieOptions { Expires = DateTimeOffset.UtcNow.AddDays(7) });
+
+            return clientAnonimId;
+        }
 
 
         public async Task<decimal?> CalculeazaTotalAsync(CosDeCumparaturi cosCumparaturi)
@@ -146,8 +211,6 @@ namespace CarbuniGratar.Web.Services
 
         public async Task<CosDeCumparaturi> AdaugaProdusInCosAsync(int clientId, int produsId, int cantitate)
         {
-            var cacheKey = $"{CachePrefix}{clientId}";
-
             if (cantitate <= 0)
             {
                 throw new ArgumentException("❌ Cantitatea trebuie să fie mai mare decât 0.");
@@ -155,44 +218,37 @@ namespace CarbuniGratar.Web.Services
 
             try
             {
-                CosDeCumparaturi cosDeCumparaturi;
+                // 🔹 1️⃣ Obținem coșul (din Redis sau SQL)
+                var cosDeCumparaturi = await ObtineCosAsync(clientId)
+                                        ?? await _cosRepository.CreeazaCosNouAsync(clientId);
 
-                // 🔹 1️⃣ Verificăm dacă există produse în coș pentru acest client
-                bool existaProduseInCos = await ExistaProduseInCosAsync(clientId);
+                // 🔹 2️⃣ Verificăm dacă produsul există deja în coș
+                bool existaProdusInCos = await ExistaProdusInCosCumparaturiAsync(produsId, cosDeCumparaturi);
 
-                if (existaProduseInCos == false) // 🔹 Dacă nu există, creăm un coș nou și adăugăm produsul
+                if (!existaProdusInCos)
                 {
-                    cosDeCumparaturi = await _cosRepository.CreeazaCosNouAsync(clientId);
+                    // 🔹 3️⃣ Dacă produsul nu este în coș, îl adăugăm
                     cosDeCumparaturi = await AdaugaProdusCareNuEInCosAsync(clientId, cosDeCumparaturi, produsId, cantitate);
-                    cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosCuProduse;
                 }
                 else
                 {
-                    // 🔹 2️⃣ Dacă există produse, încercăm să obținem coșul din cache (Redis) sau din baza de date
-                    cosDeCumparaturi = await _cacheRepository.ObtineCosDinRedisAsync(clientId)
-                                       ?? await _cosRepository.ObtineCosDinSqlAsync(clientId); // 🔥 `??` pentru performanță
-
-                    // 🔹 3️⃣ Verificăm dacă produsul este deja în coș
-                    bool existaProdusInCos = await ExistaProdusInCosCumparaturiAsync(produsId, cosDeCumparaturi);
-
-                    if (existaProdusInCos == false) // 🔹 Dacă produsul nu există în coș, îl adăugăm
-                    {
-                        cosDeCumparaturi = await AdaugaProdusCareNuEInCosAsync(clientId, cosDeCumparaturi, produsId, cantitate);
-                    }
-                    else
-                    {
-                        // 🔹 4️⃣ Dacă produsul există deja în coș, modificăm doar cantitatea acestuia
-                        cosDeCumparaturi = await ModificaCantitateProdusAsync(clientId, produsId, cantitate, cosDeCumparaturi);
-                    }
+                    // 🔹 4️⃣ Dacă produsul există, modificăm doar cantitatea
+                    cosDeCumparaturi = await ModificaCantitateProdusAsync(clientId, produsId, cantitate, cosDeCumparaturi);
                 }
 
-                // 🔹 5️⃣ Recalculăm totalul coșului
-                cosDeCumparaturi.Total = await CalculeazaTotalAsync(cosDeCumparaturi) ?? 0m; // ✅ Folosim `?? 0m` pentru a evita erorile cu `null`
+                // 🔹 5️⃣ Actualizăm statusul coșului dacă era gol
+                if (cosDeCumparaturi.Status == StatusCosDeCumparaturi.CosFaraProduse)
+                {
+                    cosDeCumparaturi.Status = StatusCosDeCumparaturi.CosCuProduse;
+                }
 
-                // 🔹 6️⃣ Salvăm modificările în baza de date (acum gestionate de `CosRepository`)
+                // 🔹 6️⃣ Recalculăm totalul coșului
+                cosDeCumparaturi.Total = await CalculeazaTotalAsync(cosDeCumparaturi) ?? 0m;
+
+                // 🔹 7️⃣ Salvăm modificările în baza de date
                 cosDeCumparaturi = await _cosRepository.AdaugaCosNouSauActualizeazaCosSqlAsync(cosDeCumparaturi);
 
-                // 🔹 7️⃣ Dacă salvarea în SQL a fost reușită, actualizăm și Redis
+                // 🔹 8️⃣ Dacă salvarea în SQL a fost reușită, actualizăm și Redis
                 await _cacheRepository.SalveazaCosInRedisAsync(clientId, cosDeCumparaturi);
 
                 return cosDeCumparaturi;
@@ -207,7 +263,9 @@ namespace CarbuniGratar.Web.Services
 
 
 
-        public async Task<CosDeCumparaturi> ModificaCantitateProdusAsync(int clientId, int produsId, int cantitate, CosDeCumparaturi cosDeCumparaturi)
+
+        // daca utilizatorul doreste sa adauge direct cantitatea fara sa se mai calculeze cantitatea, trebuie sa trimit setareAbosulta true
+        public async Task<CosDeCumparaturi> ModificaCantitateProdusAsync(int clientId, int produsId, int cantitate, CosDeCumparaturi cosDeCumparaturi, bool setareAbsoluta = false)
         {
             // 🔹 1️⃣ Verificăm dacă produsul există în coș
             var produs = cosDeCumparaturi.ListaCantitatiProduseDinCosCumparaturi
@@ -218,10 +276,17 @@ namespace CarbuniGratar.Web.Services
                 throw new InvalidOperationException($"❌ Produsul cu ID {produsId} nu există în coș.");
             }
 
-            // 🔹 2️⃣ Modificăm cantitatea produsului
-            produs.Cantitate += cantitate;
+            // 🔹 2️⃣ Aplicăm modificarea cantității
+            if (setareAbsoluta)
+            {
+                produs.Cantitate = cantitate; // Setare absolută
+            }
+            else
+            {
+                produs.Cantitate += cantitate; // Adăugare/scădere incrementală
+            }
 
-            // 🔹 3️⃣ Dacă cantitatea ajunge la 0 sau mai puțin, eliminăm produsul din coș
+            // 🔹 3️⃣ Eliminăm produsul dacă cantitatea ajunge la 0 sau mai puțin
             if (produs.Cantitate <= 0)
             {
                 cosDeCumparaturi.ListaCantitatiProduseDinCosCumparaturi.Remove(produs);
